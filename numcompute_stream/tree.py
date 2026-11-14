@@ -54,3 +54,50 @@ def entropy(counts):
 
 
 CRITERIA = {"gini": gini, "entropy": entropy}
+
+# A split must improve impurity by more than this (avoids splits that
+# only "gain" because of rounding error).
+MIN_GAIN = 1e-12
+
+
+def best_split(x, y, n_classes, criterion="gini"):
+    """
+    Best threshold for one feature, with no loop over thresholds.
+
+    Sort the column once; cumsum of the one-hot labels gives the left class
+    counts for every cut, and right = total - left. O(n log n).
+    x: (n,), y: class indices (n,). Returns (threshold, gain), or
+    (None, 0.0) if no split has gain > 0.
+    """
+
+    impurity = CRITERIA[criterion]
+    n = len(x)
+
+    order = np.argsort(x, kind="stable")
+    x_sorted = x[order]
+    one_hot = np.eye(n_classes)[y[order]]
+
+    # left_counts[i] = class counts of rows 0..i (cut after row i)
+    left_counts = np.cumsum(one_hot, axis=0)[:-1]
+    total_counts = one_hot.sum(axis=0)
+    right_counts = total_counts - left_counts
+
+    n_left = np.arange(1, n)
+    n_right = n - n_left
+    child_impurity = (
+        n_left * impurity(left_counts) + n_right * impurity(right_counts)
+    ) / n
+    gains = impurity(total_counts) - child_impurity
+
+    # Never cut between two equal values.
+    gains[x_sorted[:-1] == x_sorted[1:]] = -np.inf
+
+    if len(gains) == 0:
+        return None, 0.0
+
+    best = np.argmax(gains)  # argmax keeps the first (lowest threshold) on ties
+    if gains[best] <= MIN_GAIN:
+        return None, 0.0
+
+    threshold = (x_sorted[best] + x_sorted[best + 1]) / 2
+    return float(threshold), float(gains[best])
