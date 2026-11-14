@@ -1,0 +1,10 @@
+# Runtime
+numpy>=1.26
+matplotlib>=3.8
+
+# Tests, demo notebook and linting
+pytest>=8.0
+jupyter>=1.0
+nbconvert>=7.0
+ipykernel>=6.0
+ruff>=0.6
