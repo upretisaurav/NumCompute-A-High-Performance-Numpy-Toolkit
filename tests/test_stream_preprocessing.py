@@ -76,8 +76,28 @@ def test_imputer_constant_strategy():
     np.testing.assert_array_equal(out, [[9.0, 1.0]])
 
 
-def test_one_hot_new_category_in_chunk_2_keeps_width():
+def test_one_hot_new_category_gets_its_own_column():
     enc = OneHotEncoder()
+    enc.partial_fit(np.array([["red"], ["blue"]]))
+    enc.partial_fit(np.array([["green"], ["red"]]))
+    np.testing.assert_array_equal(enc.categories_[0], ["blue", "red", "green"])
+    out = enc.transform(np.array([["green"]]))
+    np.testing.assert_array_equal(out, [[0.0, 0.0, 1.0]])
+
+
+def test_one_hot_expanding_keeps_old_columns_unchanged():
+    X1 = np.array([["b", "x"], ["a", "y"]])
+    enc = OneHotEncoder().partial_fit(X1)
+    before = enc.transform(X1)
+    enc.partial_fit(np.array([["c", "x"]]))
+    after = enc.transform(X1)
+    # "c" is added at the end of feature 0's columns; a, b, x, y keep their order.
+    np.testing.assert_array_equal(after[:, [0, 1, 3, 4]], before)
+    np.testing.assert_array_equal(after[:, 2], [0.0, 0.0])
+
+
+def test_one_hot_new_category_in_chunk_2_keeps_width_when_not_expanding():
+    enc = OneHotEncoder(expand=False)
     enc.partial_fit(np.array([["red"], ["blue"]]))
     width = enc.transform(np.array([["red"]])).shape[1]
 

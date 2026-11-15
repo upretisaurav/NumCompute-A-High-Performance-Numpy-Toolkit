@@ -149,12 +149,13 @@ class OneHotEncoder:
     """
     Encode categorical columns as 0/1 indicator columns.
 
-    Categories are fixed after the first chunk so the output width never
-    changes (a growing width would break a model trained earlier). Later
-    unseen categories become all zeros and are listed in unseen_categories_.
+    With expand=True (default) partial_fit appends new categories to the end
+    of each column's list, so the width grows but old columns never move.
+    With expand=False categories are fixed after the first chunk; later
+    unseen ones become all zeros and are listed in unseen_categories_.
     """
 
-    def __init__(self, handle_unknown="ignore"):
+    def __init__(self, handle_unknown="ignore", expand=True):
         """handle_unknown: "ignore" (default, unknown -> all zeros) or "error"."""
 
         if handle_unknown not in ("error", "ignore"):
@@ -163,6 +164,7 @@ class OneHotEncoder:
             )
 
         self.handle_unknown = handle_unknown
+        self.expand = expand
 
     def fit(self, X, y=None):
         """Learn the sorted categories of each column from scratch."""
@@ -172,7 +174,7 @@ class OneHotEncoder:
         return self.partial_fit(X)
 
     def partial_fit(self, X, y=None):
-        """Learn categories on the first call; afterwards only record unseen ones."""
+        """Learn categories on the first call; afterwards add or record new ones."""
 
         X = check_array(X, dtype=None)
 
@@ -185,8 +187,14 @@ class OneHotEncoder:
         _check_n_features(self, X)
         for j, cats in enumerate(self.categories_):
             col = X[:, j]
-            unknown = col[~np.isin(col, cats)]
-            self.unseen_categories_[j].update(unknown.tolist())
+            unknown = np.unique(col[~np.isin(col, cats)])
+            if len(unknown) == 0:
+                continue
+            if self.expand:
+                # Append, not re-sort, so existing output columns keep their place.
+                self.categories_[j] = np.concatenate([cats, unknown])
+            else:
+                self.unseen_categories_[j].update(unknown.tolist())
 
         return self
 

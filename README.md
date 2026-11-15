@@ -95,7 +95,7 @@ Benchmark results are written to `benchmark/results/` (CSV, markdown table and P
 
 **Streaming statistics.** The scaler and `StreamingStats` share one helper (`utils.merge_moments`, Chan et al.) that merges the count/mean/M2 of each chunk, which avoids the cancellation of the naive `E[x²] - E[x]²` formula.
 
-**OneHotEncoder width.** Categories are fixed after the first chunk. If new categories were added later, the output width would change and a tree trained on the old width would break. Later unseen categories are encoded as all zeros and listed in `unseen_categories_`.
+**OneHotEncoder width.** `partial_fit` expands the categories incrementally: a new category is appended to the end of its column's list, so existing output columns never change order. Because the width grows, a tree trained on the old width raises a clear `ValueError` (feature count mismatch) by design until it is retrained on the new width. Use `OneHotEncoder(expand=False)` to freeze the categories after the first chunk instead; later unseen categories are then encoded as all zeros and listed in `unseen_categories_`.
 
 ## Fixes from the 2.1 feedback
 
