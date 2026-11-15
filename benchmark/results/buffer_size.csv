@@ -1,0 +1,6 @@
+buffer_size,final_cumulative_accuracy,n_retrains,total_retrain_time_s,max_buffer_KB
+100,0.7515,181,0.836,3.9
+250,0.7515,181,0.97,3.9
+500,0.739,90,0.696,19.5
+1000,0.737,45,0.473,46.9
+2000,0.7315,22,0.327,109.4
