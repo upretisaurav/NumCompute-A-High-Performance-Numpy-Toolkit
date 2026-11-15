@@ -249,3 +249,94 @@ def test_predict_with_wrong_number_of_features_raises():
 def test_invalid_hyperparameters_raise(kwargs):
     with pytest.raises(ValueError):
         DecisionTreeClassifier(**kwargs)
+
+
+# ---------------------------------------------------------------------------
+# 1.6 Buffered partial_fit
+# ---------------------------------------------------------------------------
+
+
+def chunks_of(X, y, size):
+    for start in range(0, len(y), size):
+        yield X[start : start + size], y[start : start + size]
+
+
+def test_no_retrain_until_buffer_is_full():
+    X, y = make_blobs(n=200)
+    tree = DecisionTreeClassifier(buffer_size=100)
+    tree.partial_fit(X[:60], y[:60])
+    assert tree.n_retrains_ == 0
+    assert tree.n_buffered_ == 60
+    with pytest.raises(NotFittedError, match="partial_fit"):
+        tree.predict(X)
+
+
+def test_retrains_exactly_when_buffer_reached_and_clears_it():
+    rng = np.random.default_rng(0)
+    X = rng.normal(size=(100, 2))
+    y = (X[:, 0] > 0).astype(int)
+    tree = DecisionTreeClassifier(buffer_size=100)
+    for X_chunk, y_chunk in chunks_of(X, y, 25):
+        tree.partial_fit(X_chunk, y_chunk)
+    assert tree.n_retrains_ == 1
+    assert tree.n_buffered_ == 0
+    assert tree.buffer_nbytes == 0
+    assert tree.last_retrain_time_ > 0
+
+
+def test_chunk_larger_than_buffer_trains_on_all_rows():
+    X, y = make_blobs(n=300)
+    tree = DecisionTreeClassifier(buffer_size=50).partial_fit(X, y)
+    assert tree.n_retrains_ == 1
+    assert tree.tree_.counts.sum() == 300
+
+
+def test_predictions_unchanged_between_retrains():
+    X, y = make_blobs(n=400)
+    order = np.random.default_rng(1).permutation(400)
+    X, y = X[order], y[order]
+    tree = DecisionTreeClassifier(buffer_size=200).partial_fit(X[:200], y[:200])
+    before = tree.predict_proba(X)
+    tree.partial_fit(X[200:300], 1 - y[200:300])  # buffered only
+    np.testing.assert_array_equal(tree.predict_proba(X), before)
+
+
+def test_new_class_in_later_chunk():
+    X0 = np.array([[0.0], [1.0], [10.0], [11.0]])
+    tree = DecisionTreeClassifier(buffer_size=4).partial_fit(X0, [0, 0, 1, 1])
+
+    # Class 2 arrives but is only buffered: proba gets a zero column for it.
+    tree.partial_fit(np.array([[20.0], [21.0]]), [2, 2])
+    assert list(tree.classes_) == [0, 1, 2]
+    proba = tree.predict_proba(X0)
+    assert proba.shape == (4, 3)
+    assert np.all(proba[:, 2] == 0)
+
+    # After the next retrain the tree can predict class 2.
+    tree.partial_fit(np.array([[0.5], [10.5]]), [0, 1])
+    assert tree.n_retrains_ == 2
+    np.testing.assert_array_equal(tree.predict([[20.5], [0.2]]), [2, 0])
+
+
+def test_single_class_chunk_gives_leaf_only_tree():
+    tree = DecisionTreeClassifier(buffer_size=5)
+    tree.partial_fit(np.random.default_rng(0).normal(size=(5, 3)), [1] * 5)
+    assert tree.tree_.is_leaf()
+    np.testing.assert_array_equal(tree.predict(np.zeros((2, 3))), [1, 1])
+
+
+def test_flush_trains_on_leftover_rows():
+    X, y = make_blobs(n=40)
+    tree = DecisionTreeClassifier(buffer_size=1000).partial_fit(X, y)
+    assert tree.n_retrains_ == 0
+    tree.flush()
+    assert tree.n_retrains_ == 1
+    assert tree.n_buffered_ == 0
+    tree.flush()  # empty buffer: nothing happens
+    assert tree.n_retrains_ == 1
+
+
+def test_partial_fit_feature_count_change_raises():
+    tree = DecisionTreeClassifier().partial_fit(np.zeros((3, 2)), [0, 1, 0])
+    with pytest.raises(ValueError, match="features"):
+        tree.partial_fit(np.zeros((3, 4)), [0, 1, 0])

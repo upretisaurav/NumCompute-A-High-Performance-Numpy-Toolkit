@@ -373,3 +373,61 @@ class DecisionTreeClassifier:
                     node = node.right
             y_pred.append(self.tree_classes_[np.argmax(node.counts)])
         return np.array(y_pred)
+
+    def partial_fit(self, X, y):
+        """
+        Buffer a chunk; once buffer_size rows are buffered, retrain on all of
+        them and clear the buffer. predict uses the last tree in between.
+
+        New labels may appear in any chunk. Raises ValueError if the number of
+        features changes.
+        """
+
+        X, y = check_X_y(X, y)
+
+        if not hasattr(self, "n_features_in_"):
+            self.n_features_in_ = X.shape[1]
+        elif X.shape[1] != self.n_features_in_:
+            raise ValueError(
+                f"X has {X.shape[1]} features, but earlier chunks had "
+                f"{self.n_features_in_}."
+            )
+
+        if hasattr(self, "classes_"):
+            self.classes_ = np.union1d(self.classes_, y)
+        else:
+            self.classes_ = np.unique(y)
+
+        self._buffer_X.append(X)
+        self._buffer_y.append(y)
+
+        if self.n_buffered_ >= self.buffer_size:
+            self._retrain()
+
+        return self
+
+    def flush(self):
+        """Retrain on rows left in the buffer (e.g. at the end of a stream)."""
+
+        if self.n_buffered_ > 0:
+            self._retrain()
+        return self
+
+    def _retrain(self):
+        X = np.vstack(self._buffer_X)
+        y = np.concatenate(self._buffer_y)
+        self._buffer_X = []
+        self._buffer_y = []
+
+        self._train(X, y)
+        self.n_retrains_ += 1
+
+    @property
+    def n_buffered_(self):
+        """Rows waiting in the buffer."""
+        return sum(len(chunk) for chunk in self._buffer_y)
+
+    @property
+    def buffer_nbytes(self):
+        """Memory used by the buffer, in bytes."""
+        return sum(a.nbytes for a in self._buffer_X + self._buffer_y)
