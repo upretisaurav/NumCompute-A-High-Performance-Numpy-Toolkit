@@ -1,0 +1,7 @@
+n_samples,strategy,loop_ms,vectorised_ms,speedup
+1000,constant,5.29,0.056,95.3
+1000,mean,11.72,0.064,183.0
+10000,constant,54.4,0.553,98.3
+10000,mean,120.77,0.519,232.8
+100000,constant,559.02,9.034,61.9
+100000,mean,1195.24,6.98,171.2
