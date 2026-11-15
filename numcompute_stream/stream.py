@@ -69,8 +69,12 @@ class StreamTrainer:
         for metric in self.metrics.values():
             if isinstance(metric, StreamingAUC):
                 proba = self.model.predict_proba(X)
-                pos_col = np.searchsorted(self.tree.classes_, metric.pos_label)
-                metric.update(y, proba[:, pos_col])
+                pos_col = np.flatnonzero(self.tree.classes_ == metric.pos_label)
+                if len(pos_col) == 0:
+                    # The positive class has not appeared yet, so its score is 0.
+                    metric.update(y, np.zeros(len(y)))
+                else:
+                    metric.update(y, proba[:, pos_col[0]])
             else:
                 metric.update(y, y_pred)
 

@@ -71,3 +71,13 @@ def test_works_with_pipeline_and_extra_metrics():
 def test_model_without_partial_fit_raises():
     with pytest.raises(AttributeError):
         StreamTrainer(object())
+
+
+def test_auc_before_positive_class_seen_does_not_crash():
+    # The first tree only knows class 0, so it has no positive-class column.
+    model = DecisionTreeClassifier(buffer_size=5)
+    trainer = StreamTrainer(model, metrics={"auc": StreamingAUC()})
+    trainer.step(np.arange(5.0)[:, None], np.zeros(5, dtype=int))
+    trainer.step(np.arange(5.0)[:, None], np.array([0, 0, 1, 1, 1]))
+    assert trainer.history["scored"] == [False, True]
+    assert trainer.history["auc"][-1] == 0.5  # all scores 0 -> ties
