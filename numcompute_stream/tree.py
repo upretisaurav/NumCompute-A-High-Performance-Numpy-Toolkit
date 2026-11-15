@@ -101,3 +101,36 @@ def best_split(x, y, n_classes, criterion="gini"):
 
     threshold = (x_sorted[best] + x_sorted[best + 1]) / 2
     return float(threshold), float(gains[best])
+
+
+def best_split_loop(x, y, n_classes, criterion="gini"):
+    """
+    Same as best_split with a Python loop over thresholds (O(n^2)). For benchmarking.
+    """
+
+    impurity = CRITERIA[criterion]
+    n = len(x)
+    parent = impurity(np.bincount(y, minlength=n_classes))
+
+    values = np.unique(x)
+    best_threshold, best_gain = None, 0.0
+
+    for i in range(len(values) - 1):
+        threshold = (values[i] + values[i + 1]) / 2
+        left = x <= threshold
+
+        left_counts = np.bincount(y[left], minlength=n_classes)
+        right_counts = np.bincount(y[~left], minlength=n_classes)
+        n_left = left.sum()
+        n_right = n - n_left
+
+        gain = (
+            parent
+            - (n_left * impurity(left_counts) + n_right * impurity(right_counts)) / n
+        )
+
+        # Strict ">" keeps the first threshold on ties.
+        if gain > best_gain and gain > MIN_GAIN:
+            best_threshold, best_gain = float(threshold), float(gain)
+
+    return best_threshold, best_gain

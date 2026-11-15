@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from numcompute_stream.tree import best_split, entropy, gini
+from numcompute_stream.tree import best_split, best_split_loop, entropy, gini
 
 # ---------------------------------------------------------------------------
 # 1.1 Impurity
@@ -81,3 +81,27 @@ def test_tie_picks_first_threshold():
     y = np.array([0, 1, 1, 0])
     threshold, _ = best_split(x, y, 2)
     assert threshold == 1.5
+
+
+# ---------------------------------------------------------------------------
+# 1.3 Loop version
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("criterion", ["gini", "entropy"])
+@pytest.mark.parametrize("seed", [0, 1, 2])
+def test_loop_and_vectorised_give_same_split(criterion, seed):
+    rng = np.random.default_rng(seed)
+    x = rng.normal(size=200)
+    y = (x + rng.normal(scale=0.8, size=200) > 0).astype(int)
+    t_vec, g_vec = best_split(x, y, 2, criterion)
+    t_loop, g_loop = best_split_loop(x, y, 2, criterion)
+    assert t_vec == t_loop
+    assert g_vec == pytest.approx(g_loop)
+
+
+def test_loop_and_vectorised_agree_with_duplicates_and_3_classes():
+    rng = np.random.default_rng(5)
+    x = rng.integers(0, 10, size=300).astype(float)
+    y = rng.integers(0, 3, size=300)
+    assert best_split(x, y, 3)[0] == best_split_loop(x, y, 3)[0]
