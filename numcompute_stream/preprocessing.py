@@ -7,6 +7,22 @@ import numpy as np
 
 from numcompute_stream.utils import check_array, check_is_fitted
 
+# A std smaller than this fraction of |mean| is only rounding error, so
+# the column is treated as constant.
+_CONSTANT_TOL = 1e3 * np.finfo(float).eps
+
+
+def _safe_scale(std, mean):
+    """
+    Return std, with 1.0 for constant columns.
+
+    2.1 used np.isclose(std, 0), whose 1e-8 tolerance treated real tiny-scale
+    columns (e.g. ~1e-12) as constant. This check is relative to the mean.
+    """
+
+    constant = std <= _CONSTANT_TOL * np.abs(mean)
+    return np.where(constant, 1.0, std)
+
 
 class StandardScaler:
     """Standardise features to zero mean and unit variance."""
@@ -20,9 +36,7 @@ class StandardScaler:
 
         self.n_features_in_ = X.shape[1]
         self.mean_ = np.mean(X, axis=0)
-        scale = np.std(X, axis=0)
-
-        self.scale_ = np.where(np.isclose(scale, 0), 1.0, scale)
+        self.scale_ = _safe_scale(np.std(X, axis=0), self.mean_)
 
         return self
 
