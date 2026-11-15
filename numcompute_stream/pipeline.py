@@ -1,4 +1,10 @@
-"""Pipeline for chaining transformers and a final estimator."""
+"""
+Pipeline for chaining transformers and a final model.
+
+2.1 fix: fit and partial_fit pass y on to every step, so a supervised
+model at the end can be trained (2.1 called last_step.fit(X) without y).
+"""
+
 
 class Pipeline:
     """
@@ -15,7 +21,6 @@ class Pipeline:
         self.steps = steps
         self.fitted = False
         self._validate_steps()
-
 
     def _validate_steps(self):
         """Check the structure of steps and the methods of each step."""
@@ -38,27 +43,22 @@ class Pipeline:
 
             if not isinstance(name, str):
                 raise TypeError(
-                    f"Expected name to be str, but got: "
-                    f"{type(name).__name__}."
-            )
+                    f"Expected name to be str, but got: {type(name).__name__}."
+                )
 
             names.append(name)
-        
+
         if len(self.steps) == 0:
             raise ValueError("Pipeline steps cannot be empty")
-        
 
         if not len(names) == len(set(names)):
             raise ValueError(
-                "Step names are expected to be unique, but "
-                f"duplicates were found."
+                "Step names are expected to be unique, but duplicates were found."
             )
 
         for name, step in self.steps[:-1]:
             if not callable(getattr(step, "fit", None)):
-                raise AttributeError(
-                    f"Step {name!r} missing callable fit() method."
-                )
+                raise AttributeError(f"Step {name!r} missing callable fit() method.")
 
             if not callable(getattr(step, "transform", None)):
                 raise AttributeError(
@@ -68,37 +68,66 @@ class Pipeline:
         name, last_step = self.steps[-1]
 
         if not callable(getattr(last_step, "fit", None)):
-            raise AttributeError(
-                f"Last step {name!r} missing callable fit() method."
-            )
+            raise AttributeError(f"Last step {name!r} missing callable fit() method.")
 
-        if (
-            not callable(getattr(last_step, "transform", None)) 
-            and not callable(getattr(last_step, "predict", None))
+        if not callable(getattr(last_step, "transform", None)) and not callable(
+            getattr(last_step, "predict", None)
         ):
             raise AttributeError(
-                f"Last step {name!r} missing callable transform()"
-                " or predict() method."
+                f"Last step {name!r} missing callable transform() or predict() method."
             )
 
+    @property
+    def named_steps(self):
+        """Steps by name, e.g. pipe.named_steps["scaler"]."""
+        return dict(self.steps)
 
-    def fit(self, X):
-        """Fit and transform each step in turn, then fit the last step."""
+    @property
+    def final_estimator(self):
+        """The last step."""
+        return self.steps[-1][1]
+
+    def fit(self, X, y=None):
+        """Fit and transform each step in turn, then fit the last step with y."""
 
         curr_X = X
 
         for _, step in self.steps[:-1]:
-            step.fit(curr_X)
+            step.fit(curr_X, y)
             curr_X = step.transform(curr_X)
 
-        _, last_step = self.steps[-1]
-        
-        last_step.fit(curr_X)
+        self.final_estimator.fit(curr_X, y)
 
         self.fitted = True
 
         return self
-        
+
+    def partial_fit(self, X, y=None):
+        """
+        Update every step with one chunk: partial_fit then transform for each
+        transformer, then partial_fit(X, y) on the last step.
+
+        Raises AttributeError if a step has no partial_fit.
+        """
+
+        for name, step in self.steps:
+            if not callable(getattr(step, "partial_fit", None)):
+                raise AttributeError(
+                    f"Step {name!r} has no partial_fit() method, so the "
+                    "pipeline cannot be trained on a stream."
+                )
+
+        curr_X = X
+
+        for _, step in self.steps[:-1]:
+            step.partial_fit(curr_X, y)
+            curr_X = step.transform(curr_X)
+
+        self.final_estimator.partial_fit(curr_X, y)
+
+        self.fitted = True
+
+        return self
 
     def transform(self, X):
         """
@@ -109,12 +138,10 @@ class Pipeline:
         if not self.fitted:
             raise RuntimeError("Pipeline has not yet been fitted.")
 
-        _, last_step = self.steps[-1]     
+        _, last_step = self.steps[-1]
 
         if not callable(getattr(last_step, "transform", None)):
-            raise AttributeError(
-                "Last step missing callable transform() method."
-            )
+            raise AttributeError("Last step missing callable transform() method.")
 
         curr_X = X
 
@@ -123,36 +150,38 @@ class Pipeline:
 
         return curr_X
 
-    def fit_transform(self, X):
-        """Same as fit(X).transform(X)."""
-        _, last_step = self.steps[-1]     
+    def fit_transform(self, X, y=None):
+        """Same as fit(X, y).transform(X)."""
+        _, last_step = self.steps[-1]
 
         if not callable(getattr(last_step, "transform", None)):
-            raise AttributeError(
-                "Last step missing callable transform() method."
-            )
+            raise AttributeError("Last step missing callable transform() method.")
 
-        return self.fit(X).transform(X)
+        return self.fit(X, y).transform(X)
 
     def predict(self, X):
-        """
-        Transform X, then call the last step's predict. Raises RuntimeError
-        before fit, AttributeError if the last step has no predict.
-        """
-        
+        """Transform X, then call the last step's predict."""
+
+        if not callable(getattr(self.final_estimator, "predict", None)):
+            raise AttributeError("Last step missing callable predict() method.")
+
+        return self.final_estimator.predict(self._transform_before_last(X))
+
+    def _transform_before_last(self, X):
+        """Run X through every step except the last."""
+
         if not self.fitted:
             raise RuntimeError("Pipeline has not yet been fitted.")
 
-        _, last_step = self.steps[-1]     
-
-        if not callable(getattr(last_step, "predict", None)):
-            raise AttributeError(
-                f"Last step missing callable predict() method."
-            )
-
         curr_X = X
-
         for _, step in self.steps[:-1]:
             curr_X = step.transform(curr_X)
+        return curr_X
 
-        return last_step.predict(curr_X)
+    def predict_proba(self, X):
+        """Transform X, then call the last step's predict_proba."""
+
+        if not callable(getattr(self.final_estimator, "predict_proba", None)):
+            raise AttributeError("Last step missing callable predict_proba() method.")
+
+        return self.final_estimator.predict_proba(self._transform_before_last(X))
